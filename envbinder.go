@@ -18,6 +18,9 @@ func (b *EnvBinder) addError(err error) {
 
 func (b *EnvBinder) BindError() error {
 	if len(b.errs) > 0 {
+		if len(b.errs) > 1 {
+			b.errs = b.errs[1:]
+		}
 		return b.errs[0]
 	}
 	return nil
