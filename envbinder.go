@@ -8,26 +8,39 @@ import (
 	"strings"
 )
 
-var NoEnvVarError = fmt.Errorf("No value")
 var InvalidBoolValue = fmt.Errorf("Invalid Value for Bool")
 
 type EnvBinder struct {
-	Err error
+	errs []error
+}
+
+func NewEnvBinder() (b EnvBinder) {
+	b.errs = make([]error, 0)
+	return
+}
+
+func (b *EnvBinder) addError(err error) {
+	b.errs = append(b.errs, err)
+}
+
+func (b *EnvBinder) lookupString(name string) (s string, err error) {
+	s, ok := os.LookupEnv(name)
+	if !ok {
+		return s, fmt.Errorf("No env var: %s", name)
+	}
+	return
 }
 
 func (b *EnvBinder) String(v *string, name string) *EnvBinder {
-	s, ok := os.LookupEnv(name)
-	if !ok {
-		b.Err = NoEnvVarError
-		return b
-	}
+	s, err := b.lookupString(name)
+	b.addError(err)
 	*v = s
 	return b
 }
 
 func (b *EnvBinder) StringOrDef(v *string, name string, def string) *EnvBinder {
-	s, ok := os.LookupEnv(name)
-	if !ok {
+	s, err := b.lookupString(name)
+	if err != nil {
 		*v = def
 		return b
 	}
@@ -35,70 +48,76 @@ func (b *EnvBinder) StringOrDef(v *string, name string, def string) *EnvBinder {
 	return b
 }
 
-func (b *EnvBinder) Bool(v *bool, name string) *EnvBinder {
-	s, ok := os.LookupEnv(name)
-	if !ok {
-		b.Err = NoEnvVarError
-		return b
+func (b *EnvBinder) lookupBool(name string) (bool, error) {
+	s, err := b.lookupString(name)
+	if err != nil {
+		return false, err
 	}
 	s = strings.ToLower(s)
+
 	if slices.Contains([]string{"yes", "enable", "enabled", "true"}, s) {
-		*v = true
+		return true, nil
 	} else if slices.Contains([]string{"no", "disable", "disabled", "false"}, s) {
-		*v = false
+		return false, nil
 	} else {
-		b.Err = InvalidBoolValue
+		return false, InvalidBoolValue
 	}
+}
+
+func (b *EnvBinder) Bool(v *bool, name string) *EnvBinder {
+	r, err := b.lookupBool(name)
+	*v = r
+	b.addError(err)
 	return b
 }
 
 func (b *EnvBinder) BoolOrDef(v *bool, name string, def bool) *EnvBinder {
-	s, ok := os.LookupEnv(name)
-	if !ok {
+	r, err := b.lookupBool(name)
+	if err != nil {
 		*v = def
 		return b
 	}
-	s = strings.ToLower(s)
-	if slices.Contains([]string{"yes", "enable", "enabled", "true"}, s) {
-		*v = true
-	} else if slices.Contains([]string{"no", "disable", "disabled", "false"}, s) {
-		*v = false
-	} else {
-		*v = def
-	}
+	*v = r
 	return b
 }
 
-func (b *EnvBinder) Int(v *int, name string) *EnvBinder {
-	s, ok := os.LookupEnv(name)
-	if !ok {
-		b.Err = NoEnvVarError
-		return b
-	}
-	a, err := strconv.Atoi(s)
+func (b *EnvBinder) lookupInt(name string) (int, error) {
+	s, err := b.lookupString(name)
 	if err != nil {
-		b.Err = err
+		return 0, err
+	}
+	return strconv.Atoi(s)
+}
+
+func (b *EnvBinder) Int(v *int, name string) *EnvBinder {
+	i, err := b.lookupInt(name)
+	if err != nil {
+		b.addError(err)
 		return b
 	}
-	*v = a
+	*v = i
 	return b
 }
 
 func (b *EnvBinder) IntOrDef(v *int, name string, def int) *EnvBinder {
-	s, ok := os.LookupEnv(name)
-	if !ok {
-		*v = def
-		return b
-	}
-	a, err := strconv.Atoi(s)
+	i, err := b.lookupInt(name)
 	if err != nil {
 		*v = def
 		return b
 	}
-	*v = a
+	*v = i
 	return b
 }
 
 func (b *EnvBinder) BindError() error {
-	return b.Err
+	if len(b.errs) > 0 {
+		b.errs = b.errs[1:]
+		return b.errs[0]
+	}
+	return nil
+}
+
+func (b *EnvBinder) BindErrors() []error {
+	b.errs = make([]error, 0)
+	return b.errs
 }
